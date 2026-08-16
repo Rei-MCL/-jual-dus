@@ -1,12 +1,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>App Jual Dus — Maxcell Kolaka</title>
-<link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#8C1010">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Jual Dus">
-<link rel="apple-touch-icon" href="icon-192.png">
+<title>Jual Dus — Maxcell Kolaka</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600&family=Inter:wght@400;500;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 
@@ -337,6 +331,11 @@ tfoot td{background:rgba(201,162,39,.12);font-weight:700;color:var(--emas-t);bor
     <div class="eyebrow">Data Perangkat</div>
     <button class="btn garis" onclick="isiContoh()">Isi Data Contoh</button>
     <button class="btn garis" onclick="hapusSemua()">Hapus Semua Data</button>
+
+    <div class="eyebrow">Sesi</div>
+    <p style="font-size:11px;color:var(--abu);margin:0 0 10px;line-height:1.6">
+      Aplikasi tetap terbuka selama 12 jam sejak masuk, jadi tidak perlu mengetik PIN berulang kali.</p>
+    <button class="btn garis" onclick="keluar()">Keluar Aplikasi</button>
   </div>
 
   <div class="kredit">
@@ -370,6 +369,8 @@ let TRX     = DB.get('jd_trx',[]);
 let HARGA   = DB.get('jd_harga',{'Dus':1500,'Pallet':15000,'Besi Tua':3000,'Rongsokan Lain':1000});
 let SET     = DB.get('jd_set',{api:'',pin:'2026'});
 let ANTRI   = DB.get('jd_antri',[]);
+let SESI    = DB.get('jd_sesi',0);
+const SESI_BERLAKU = 12*60*60*1000;   // 12 jam
 JENIS.forEach(j=>{ if(HARGA[j]===undefined) HARGA[j]=0; });
 
 const simpanDB = ()=>{ DB.set('jd_trx',TRX); DB.set('jd_harga',HARGA); DB.set('jd_set',SET); DB.set('jd_antri',ANTRI); };
@@ -407,7 +408,21 @@ function toast(p){ const t=document.createElement('div'); t.className='toast'; t
 /* =============== LOGIN =============== */
 function masuk(){
   if($('inPin').value !== SET.pin){ toast('PIN salah. Coba lagi.'); $('inPin').value=''; return; }
-  $('scLogin').classList.add('hide'); $('app').classList.remove('hide'); mulai();
+  DB.set('jd_sesi', Date.now());
+  bukaApp();
+}
+function bukaApp(){
+  $('scLogin').classList.add('hide');
+  $('app').classList.remove('hide');
+  mulai();
+  history.replaceState({h:'beranda'}, '');
+}
+function keluar(){
+  if(!confirm('Keluar dari aplikasi? Data tetap tersimpan.')) return;
+  DB.set('jd_sesi', 0);
+  $('app').classList.add('hide');
+  $('scLogin').classList.remove('hide');
+  $('inPin').value = '';
 }
 $('inPin').addEventListener('keyup', e => { if(e.key==='Enter') masuk(); });
 
@@ -419,13 +434,18 @@ const HAL = {
   laporan:{p:'pgLaporan',t:'tbLaporan',j:'Cetak Laporan'},
   set    :{p:'pgSet',    t:null,       j:'Pengaturan'}
 };
-function buka(k){
+let halAktif = 'beranda', siapKeluar = 0;
+
+function buka(k, dariTombolKembali){
+  halAktif = k;
+  if(!dariTombolKembali) history.pushState({h:k}, '');
   Object.values(HAL).forEach(h=>{ $(h.p).classList.add('hide'); if(h.t) $(h.t).classList.remove('on'); });
   $(HAL[k].p).classList.remove('hide');
   if(HAL[k].t) $(HAL[k].t).classList.add('on');
   $('judul').innerHTML = HAL[k].j + '<small>Maxcell Depo Teknik &amp; Bangunan · Kolaka</small>';
   window.scrollTo(0,0);
   isiFilter();
+  if(k==='input')   ambilLokasi();
   if(k==='beranda') gambarBeranda();
   if(k==='data')    gambarData();
   if(k==='laporan') gambarLaporan();
@@ -469,9 +489,36 @@ function hitung(){
   $('lblTotalTrx').textContent = rp(b * h);
 }
 
+/* =============== LOKASI =============== */
+let LOK = {teks:'', waktu:0, sedang:false};
+
+async function ambilLokasi(){
+  if(LOK.teks && Date.now()-LOK.waktu < 300000) return LOK.teks;
+  if(LOK.sedang) return LOK.teks;
+  if(!navigator.geolocation) return '';
+  LOK.sedang = true;
+  try{
+    const pos = await new Promise((res,rej)=>
+      navigator.geolocation.getCurrentPosition(res,rej,
+        {enableHighAccuracy:true, timeout:9000, maximumAge:60000}));
+    const la = pos.coords.latitude, lo = pos.coords.longitude;
+    let teks = la.toFixed(5) + ', ' + lo.toFixed(5);
+    try{
+      const r = await fetch('https://api.bigdatacloud.net/data/reverse-geocode-client?latitude='
+                + la + '&longitude=' + lo + '&localityLanguage=id');
+      const j = await r.json();
+      const bag = [...new Set([j.locality, j.city, j.principalSubdivision].filter(Boolean))];
+      if(bag.length) teks = bag.join(', ');
+    }catch(e){}
+    LOK = {teks:teks, waktu:Date.now(), sedang:false};
+    return teks;
+  }catch(e){ LOK.sedang = false; return LOK.teks || ''; }
+}
+
 /* =============== KAMERA =============== */
 let stream=null;
 async function bukaKamera(){
+  ambilLokasi();
   if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ $('filFoto').click(); return; }
   try{
     stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280}}});
@@ -483,61 +530,66 @@ function tutupKamera(){
   if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
   $('scKamera').classList.add('hide');
 }
-function jepret(){
+async function jepret(){
   const v = $('vid');
   if(!v.videoWidth){ toast('Kamera belum siap. Tunggu sebentar.'); return; }
-  fotoData = olah(v, v.videoWidth, v.videoHeight);
+  const lok = await ambilLokasi();
+  fotoData = olah(v, v.videoWidth, v.videoHeight, lok);
   tutupKamera(); gambarFoto();
 }
 function dariGaleri(ev){
   const f = ev.target.files[0]; if(!f) return;
   const r = new FileReader();
   r.onload = () => { const im = new Image();
-    im.onload = () => { fotoData = olah(im, im.width, im.height); gambarFoto(); };
+    im.onload = async () => {
+      const lok = await ambilLokasi();
+      fotoData = olah(im, im.width, im.height, lok); gambarFoto();
+    };
     im.src = r.result; };
   r.readAsDataURL(f);
   ev.target.value = '';
 }
 
-/** Kompres + tempel logo, tanggal, jam, jenis & berat */
-function olah(src, w, h){
+/** Kompres + tempel logo, lokasi, tanggal & jam */
+function olah(src, w, h, lokasi){
   const lebar = 1000, s = Math.min(1, lebar/w);
   const c = document.createElement('canvas');
   c.width = Math.round(w*s); c.height = Math.round(h*s);
   const x = c.getContext('2d');
   x.drawImage(src,0,0,c.width,c.height);
 
-  const pad = Math.round(c.width*0.025);
-  const barH = Math.round(c.width*0.115);
+  const pad  = Math.round(c.width*0.025);
+  const barH = Math.round(c.width*0.125);
 
-  // pita gelap bawah
-  x.fillStyle = 'rgba(0,0,0,.62)';
+  x.fillStyle = 'rgba(0,0,0,.64)';
   x.fillRect(0, c.height-barH, c.width, barH);
   x.fillStyle = '#C9A227';
   x.fillRect(0, c.height-barH, c.width, Math.max(2, c.width*0.004));
 
-  // logo kiri bawah
   if(imgLogo.complete && imgLogo.naturalWidth){
-    const lh = barH*0.46, lw = lh * (imgLogo.naturalWidth/imgLogo.naturalHeight);
+    const lh = barH*0.44, lw = lh * (imgLogo.naturalWidth/imgLogo.naturalHeight);
     x.drawImage(imgLogo, pad, c.height-barH + (barH-lh)/2, lw, lh);
   }
 
-  // teks kanan bawah
-  const d = new Date();
+  const d  = new Date();
   const dd = String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0') + '/' + d.getFullYear();
   const jj = String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
-  const f1 = Math.round(barH*0.30), f2 = Math.round(barH*0.22);
+  const f1 = Math.round(barH*0.29);
+  let   f2 = Math.round(barH*0.20);
+  const lok = lokasi || 'Lokasi tidak tersedia';
 
   x.textAlign = 'right';
   x.fillStyle = '#FFFFFF';
   x.font = '700 ' + f1 + 'px Arial, sans-serif';
   x.fillText(dd + '  ' + jj, c.width-pad, c.height-barH + barH*0.44);
+
   x.fillStyle = '#E8C55A';
+  const ruang = c.width - pad*2 - barH*1.6;
   x.font = '600 ' + f2 + 'px Arial, sans-serif';
-  const sk = sat(jenisAktif);
-  const ket = jenisAktif + '  ·  ' + qtyS(parseFloat(berat)||0, sk)
-            + (sk==='unit' ? '' : '  ·  ' + jmlIkatan + ' ikatan');
-  x.fillText(ket, c.width-pad, c.height-barH + barH*0.78);
+  while(x.measureText(lok).width > ruang && f2 > 10){
+    f2--; x.font = '600 ' + f2 + 'px Arial, sans-serif';
+  }
+  x.fillText(lok, c.width-pad, c.height-barH + barH*0.79);
 
   return c.toDataURL('image/jpeg', 0.72);
 }
@@ -731,9 +783,25 @@ function mulai(){
   pilihJenis(jenisAktif);
   gambarFoto(); isiFilter(); gambarBeranda();
 }
-if('serviceWorker' in navigator){
-  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(()=>{}));
-}
+window.addEventListener('popstate', () => {
+  if($('app').classList.contains('hide')) return;
+  if(!$('scKamera').classList.contains('hide')){
+    tutupKamera(); history.pushState({h:halAktif}, ''); return;
+  }
+  if(halAktif !== 'beranda'){
+    buka('beranda', true);
+    history.pushState({h:'beranda'}, '');
+    return;
+  }
+  if(Date.now() - siapKeluar > 2500){
+    siapKeluar = Date.now();
+    toast('Tekan kembali sekali lagi untuk keluar.');
+    history.pushState({h:'beranda'}, '');
+  }
+});
+
+if(Date.now() - SESI < SESI_BERLAKU){ bukaApp(); }
+
 $('logoHdr').src = LOGO;
 $('logoLogin').src = LOGO;
 </script>
