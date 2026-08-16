@@ -1,0 +1,16 @@
+{
+  "name": "App Jual Dus — Maxcell Kolaka",
+  "short_name": "Jual Dus",
+  "description": "Pencatatan penjualan dus dan barang bekas Maxcell Kolaka",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#14100E",
+  "theme_color": "#8C1010",
+  "lang": "id",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
