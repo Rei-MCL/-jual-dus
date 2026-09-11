@@ -1,7 +1,7 @@
-/* Jual Dus - service worker
-   HTML selalu diambil dari jaringan lebih dulu supaya pembaruan langsung terpakai.
-   Aset statis (ikon, manifest) tetap dari cache. */
-const CACHE = 'jualdus-v3';
+/* Jual Dus - service worker v4
+   HTML selalu diambil dari jaringan dengan cache browser dilewati,
+   supaya pembaruan langsung terpakai tanpa perlu bersihkan data. */
+const CACHE = 'jualdus-v4';
 const ASET  = ['./manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -24,13 +24,14 @@ self.addEventListener('fetch', e => {
     (req.headers.get('accept') || '').includes('text/html');
 
   if (htmlDiminta) {
-    // jaringan dulu, cache hanya sebagai cadangan saat offline
     e.respondWith(
-      fetch(req).then(res => {
-        const salinan = res.clone();
-        caches.open(CACHE).then(c => c.put('./index.html', salinan));
-        return res;
-      }).catch(() => caches.match('./index.html'))
+      fetch(new Request(req.url, { cache: 'no-store' }))
+        .then(res => {
+          const salinan = res.clone();
+          caches.open(CACHE).then(c => c.put('./index.html', salinan));
+          return res;
+        })
+        .catch(() => caches.match('./index.html'))
     );
     return;
   }
